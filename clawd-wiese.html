@@ -1,7 +1,7 @@
 <title>Clawds Wiesenausflug</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
 <style>
   /* Layout: full-bleed canvas landscape, one small caption card bottom-left, play control bottom-right.
      Single visual world (a sunny-to-starry fantasy meadow), so one palette for every host theme. */
@@ -48,8 +48,8 @@
   .hint.gone { opacity: 0; }
 </style>
 
-<canvas id="scene" aria-label="Animation: der kleine Claude-Code-Bot Clawd läuft durch eine Fantasy-Landschaft mit Wiesen und Bergen und albert herum"></canvas>
-<div class="hint" id="hint">Tippen startet die Musik · tipp auf Clawd für einen Trick</div>
+<canvas id="scene" aria-label="Animation: der kleine Claude-Code-Bot Clawd und sein Kumpel Codex wandern durch eine Fantasy-Landschaft mit Wiesen und Bergen, albern herum und quatschen miteinander"></canvas>
+<div class="hint" id="hint">Tippen startet die Musik · tipp auf Clawd oder Codex</div>
 <div class="card">
   <h1>Clawds Wiesenausflug</h1>
   <p id="status">Clawd winkt dir zu</p>
@@ -207,6 +207,21 @@
     bonk() { const t = SND.ac.currentTime; tone({ f: 420, f2: 140, t, dur: .18, v: .15, type: 'triangle', pluck: true }); tone({ f: 1200, f2: 900, t: t + .05, dur: .5, v: .03, vib: 14 }); },
     pling() { tone({ f: rand(1300, 1900), dur: .08, v: .03, pluck: true, rel: .15 }); },
     snore() { tone({ f: 110, f2: 85, dur: .6, v: .07, type: 'sawtooth', atk: .2, filt: ['lowpass', 380] }); },
+    // Codex speaks in quick, musical computer chirps
+    cvoice(text) {
+      let t = SND.ac.currentTime + .02;
+      const ex = text.includes('!'), q = text.includes('?');
+      const n = clamp(Math.round(text.replace(/[^a-zäöüß]/gi, '').length / 3), 2, 10);
+      const base = ex ? 420 : 350, steps = [0, 3, 5, 7, 10, 12];
+      for (let i = 0; i < n; i++) {
+        const d = rand(.04, .075), f = base * Math.pow(2, pick(steps) / 12);
+        tone({ f, t, dur: d, v: .08, type: 'triangle', rel: .02 });
+        tone({ f: f * 2, t, dur: d * .6, v: .025, type: 'square', rel: .02, filt: ['lowpass', 1800] });
+        t += d + rand(.015, .04);
+      }
+      if (q) tone({ f: base * 2, f2: base * 3, t, dur: .1, v: .05, pluck: true });
+    },
+    clap() { const t = SND.ac.currentTime; noiseHit(t, .09, .5, ['bandpass', 1800, .7]); noiseHit(t + .015, .07, .3, ['bandpass', 1200, .7]); SFX.tadaa(); },
     sparkle() { const t = SND.ac.currentTime; [88, 91, 96].forEach((m, i) => tone({ f: mtof(m), t: t + i * .05, dur: .06, v: .035, pluck: true, rel: .2 })); },
   };
   function sfx(name, arg) {
@@ -260,14 +275,15 @@
 
   // ---------- Clawd ----------
   const B = { x: 0, h: 0, vh: 0, vx: 0, face: 1, state: 'walk', t: 0, dur: 3, anim: 0, rot: 0, sq: 0, wave: 0,
-    eyes: 'normal', lookY: 0, moving: false, flags: {}, blinkT: 2, blink: 0, bubble: null, lastTrick: '', target: null, flower: null, napped: false };
+    eyes: 'normal', lookY: 0, moving: false, flags: {}, blinkT: 2, blink: 0, bubble: null, lastTrick: '', target: null, flower: null, napped: false,
+    introDone: false, spinning: false, spinAir: 0, dancing: false, dialog: null };
 
   const LABELS = {
     walk: 'spaziert über die Wiese', hop: 'hüpft herum', spin: 'macht einen Salto', wave: 'winkt dir zu',
     chase: 'jagt einen Schmetterling', trip: 'stolpert über einen Grashalm', dance: 'tanzt', flower: 'schnuppert an einer Blume',
-    moonwalk: 'macht den Moonwalk', look: 'bestaunt die Berge', nap: 'macht ein Nickerchen'
+    moonwalk: 'macht den Moonwalk', look: 'bestaunt die Berge', nap: 'macht ein Nickerchen', talk: 'quatscht mit Codex'
   };
-  const DUR = { hop: 2.4, spin: 1.9, wave: 2.6, chase: 5.2, trip: 3.4, dance: 3.6, flower: 3.6, moonwalk: 3, look: 3.2, nap: 6.5 };
+  const DUR = { hop: 2.4, spin: 1.9, wave: 2.6, chase: 5.2, trip: 3.4, dance: 3.6, flower: 3.6, moonwalk: 3, look: 3.2, nap: 6.5, talk: 99 };
 
   function say(text, dur = 2.2) {
     B.bubble = { text, t: 0, dur };
@@ -278,8 +294,10 @@
     if (B.state !== 'walk') B.lastTrick = B.state;
     if (B.target) { B.target.chased = false; B.target = null; }
     B.state = s; B.t = 0; B.flags = {}; B.eyes = 'normal'; B.lookY = 0; B.wave = 0; B.rot = 0;
+    B.spinning = false; B.dancing = false;
     B.dur = s === 'walk' ? rand(2.5, 5) : DUR[s];
-    statusEl.textContent = 'Clawd ' + LABELS[s];
+    statusEl.textContent = s === 'talk' ? 'Clawd und Codex quatschen' : 'Clawd ' + LABELS[s];
+    if (REACT[s] && B.introDone && Math.random() < .6) codexSay(pick(REACT[s]), 1.8, rand(1, 1.5));
     switch (s) {
       case 'walk':
         if (Math.random() < .35) say(pick(['La la la ~', 'Was für ein schöner Tag!', 'Frische Bergluft!', 'Hm hm hmm ~', 'Wohin heute?', 'Ich liebe Wiesen.']));
@@ -306,7 +324,85 @@
     if (B.state !== 'walk') { setState('walk'); return; }
     if (N < .3) B.napped = false;
     if (N > .75 && !B.napped && Math.random() < .55) { B.napped = true; setState('nap'); return; }
+    if (!B.introDone || Math.random() < .42) { startDialog(); return; }
     setState(pick(['hop', 'spin', 'wave', 'chase', 'trip', 'dance', 'flower', 'moonwalk', 'look'].filter(s => s !== B.lastTrick)));
+  }
+
+  // ---------- Codex, Clawd's hovering buddy ----------
+  const C = { x: -2000, h: 0, vh: 0, vx: 0, face: 1, rot: 0, spinT: 0, eyes: 'normal', bubble: null, pending: null, blinkT: 3, blink: 0, dancing: false, ht: 0 };
+  const CODEX_FONT = '"JetBrains Mono", ui-monospace, Menlo, Consolas, monospace';
+  const REACT = {
+    spin: ['Wow! 10 von 10!', 'Angeber! Hihi.'], trip: ['Clawd! Alles okay?!'], dance: ['Ich tanz mit!'],
+    chase: ['Du schaffst das!', 'Links! Nein, rechts!'], moonwalk: ['Seit wann kannst du DAS?'], look: ['Ich zähle 42 Berge.'],
+    hop: ['Warte auf mich!'], flower: ['Riecht sie nach Bugfix?'], nap: ['Psst ... er schläft.'], wave: ['Ich wink auch! Huhu!']
+  };
+  // [who, text, action]; who is B (Clawd), C (Codex) or both
+  const DIALOGS = [
+    { lines: [['C', 'Clawd! Waaarte auf mich!'], ['B', 'Codex! Da bist du ja!', 'bhop'], ['C', 'Ich hab den Weg berechnet. Dreimal.'],
+      ['B', 'Komm, wir erkunden die Wiese!', 'bhappy'], ['C', 'Bin dabei! git checkout abenteuer', 'cspin']] },
+    { lines: [['C', 'Psst ... da krabbelt ein Bug!', 'csurprised'], ['B', 'Wo?! Ich fix das sofort!', 'bhop'], ['C', 'Oh. Das ist ein Schmetterling.', 'butterfly'],
+      ['B', '... ein sehr hübscher Bug.', 'bhappy'], ['C', "Won't fix. Zu süß.", 'chappy']] },
+    { lines: [['B', 'Wettrennen bis zum nächsten Baum?'], ['C', 'Ich hab schon gewonnen. Ich bin gecacht.', 'chappy'], ['B', 'Das gilt nicht! Los!', 'race'],
+      ['C', 'Wiiii! Neuer Rekord!', 'race'], ['B', '*keuch* ... Revanche ... morgen.', 'bsleepy']] },
+    { lines: [['C', 'Tabs oder Leerzeichen?'], ['B', 'Gänseblümchen.', 'bhappy'], ['C', '... das ist keine Antwort.', 'csurprised'], ['B', 'Doch! Und eine sehr schöne.', 'bhearts']] },
+    { lines: [['C', 'Weißt du was, Clawd?'], ['B', 'Hm?'], ['C', 'Mit dir macht sogar Debuggen Spaß.', 'chappy'], ['B', 'Aww! High five!', 'highfive'], ['both', 'Alle Tests bestanden!', 'bothhappy']] },
+    { lines: [['B', 'Ich hab dir Blümchen gepflückt!', 'bhearts'], ['C', 'Merge-Konflikt! Ich dir auch!', 'chearts'], ['both', 'Hihihi!', 'bothdance']] },
+    { lines: [['C', 'Die Wolke sieht aus wie ein Semikolon.'], ['B', 'Quatsch, die sieht aus wie ein Keks!'], ['C', 'Ein Keks mit Semikolon?', 'csurprised'],
+      ['B', 'Der leckerste Syntaxfehler der Welt.', 'bhappy']] },
+    { lines: [['C', 'Dance-Battle! Ich fang an!', 'cdance'], ['B', 'Pff! Schau dir DAS an!', 'bspin'], ['C', 'Unentschieden?'], ['both', 'Unentschieden!', 'bothdance']] },
+    { lines: [['B', 'Diese Wiese merk ich mir für immer!', 'bhappy'], ['C', 'Passt die in dein Kontextfenster?'], ['B', 'Ich mach Platz für alle Blumen.', 'bhearts'],
+      ['C', 'Effizient. Und süß.', 'chappy']] },
+    { lines: [['C', 'Willst du einen Witz hören?'], ['B', 'Jaaa!', 'bhop'], ['C', 'Warum gehen Bots nie barfuß?'], ['B', 'Warum?'],
+      ['C', 'Zu viele Bugs im Gras!', 'chappy'], ['B', 'Hahaha! Okay, der war gut.', 'bdance']] },
+    { lines: [['B', 'Ich hab Hunger.'], ['C', 'Wir sind Roboter, Clawd.', 'csurprised'], ['B', 'Hunger auf Abenteuer!', 'bspin'], ['C', '... okay, das war smooth.', 'chappy']] },
+    { night: true, lines: [['C', 'Clawd ... schläfst du schon?'], ['B', 'Zzz ... ja ...', 'bsleepy'], ['C', 'Okay. Gute Nacht, Kumpel.', 'chearts']] },
+    { night: true, lines: [['B', 'Schau mal, so viele Sterne!', 'bhappy'], ['C', 'Ich zähle ... 140 Stück.'], ['B', 'Du hast sie gezählt?!', 'bhop'], ['C', 'Zweimal. Zur Sicherheit.', 'chappy']] },
+  ];
+  let dlgQueue = [];
+  function startDialog() {
+    let d;
+    if (!B.introDone) { d = DIALOGS[0]; B.introDone = true; }
+    else if (N > .6 && Math.random() < .5) d = pick(DIALOGS.filter(x => x.night));
+    else {
+      if (!dlgQueue.length) dlgQueue = DIALOGS.slice(1).filter(x => !x.night).sort(() => Math.random() - .5);
+      d = dlgQueue.pop();
+    }
+    B.dialog = d;
+    setState('talk');
+  }
+  function codexSay(text, dur = 2, delay = 0) {
+    if (delay > 0) { C.pending = { text, dur, at: delay }; return; }
+    C.bubble = { text, t: 0, dur };
+    sfx('cvoice', text);
+  }
+  const codexY = () => pathY(C.x) - 36 - Math.sin(T * 2.4) * 5 - C.h + (B.state === 'nap' ? 10 : 0);
+
+  function updateCodex(dt) {
+    const talk = B.state === 'talk', act = talk ? B.flags.act : null;
+    let tx = B.x - 100;
+    if (!B.introDone) tx = cam - 260;
+    else if (talk) tx = act === 'race' ? B.x + 150 : B.x - 92;
+    else if (B.state === 'moonwalk') tx = B.x - 150;
+    C.vx = clamp((tx - C.x) * 2.6, -300, 360);
+    C.x += C.vx * dt;
+    C.dancing = act === 'cdance' || act === 'bothdance' || B.state === 'dance';
+    if (C.dancing) { C.h = Math.abs(Math.sin(T * 6 + 1)) * 12; C.vh = 0; }
+    else { C.vh -= 900 * dt; C.h += C.vh * dt; if (C.h < 0) { C.h = 0; C.vh = 0; } }
+    if (C.spinT > 0) { C.spinT -= dt; C.rot = C.spinT > 0 ? (1 - C.spinT / .8) * Math.PI * 2 * C.face : 0; }
+    else C.rot = C.dancing ? Math.sin(T * 6) * .2 : clamp(C.vx * .0012, -.3, .3);
+    if (talk) C.face = act === 'race' || B.x >= C.x ? 1 : -1;
+    else if (Math.abs(C.vx) > 25) C.face = C.vx > 0 ? 1 : -1;
+
+    const happy = ['chappy', 'chearts', 'bothhappy', 'bothdance', 'bothhearts', 'highfive', 'cdance'].includes(act) || C.dancing;
+    C.eyes = B.state === 'nap' ? 'sleepy' : act === 'csurprised' || (B.state === 'trip' && B.t > .5 && B.t < 2.6) ? 'surprised' : happy ? 'happy' : 'normal';
+    if (act === 'chearts' || act === 'bothhearts') {
+      C.ht += dt;
+      if (C.ht > .35) { C.ht = 0; sfx('pling'); puff('heart', C.x + rand(-12, 12), codexY() - 40, { vx: rand(-15, 15), vy: -45, life: 1.3, max: 1.3, s: rand(6, 9), c: [130, 200, 255] }); }
+    }
+    C.blinkT -= dt; C.blink -= dt;
+    if (C.blinkT < 0) { C.blink = .12; C.blinkT = rand(2.5, 6); }
+    if (C.pending) { C.pending.at -= dt; if (C.pending.at <= 0) { const q = C.pending; C.pending = null; codexSay(q.text, q.dur); } }
+    if (C.bubble) { C.bubble.t += dt; if (C.bubble.t > C.bubble.dur) C.bubble = null; }
   }
 
   function every(key, interval, dt, fn) {
@@ -376,7 +472,7 @@
           B.eyes = 'closed'; B.rot = (.25 + Math.sin(t * 30) * .03) * B.face; B.sq = -.06;
         } else {
           if (!B.flags.s2) {
-            B.flags.s2 = 1; say('HATSCHI!', 1.3); B.vh = 380; B.rot = 0;
+            B.flags.s2 = 1; say('HATSCHI!', 1.3); B.vh = 380; B.rot = 0; codexSay('Gesundheit!', 1.4, .6);
             for (let i = 0; i < 10; i++) puff('petal', B.flower.x, pathY(B.flower.x) - 30, { vx: rand(-90, 140), vy: rand(-180, -40), life: 1.8, max: 1.8, s: rand(3, 5), c: B.flower.c });
           }
           B.vx = B.h > 0 ? -120 : 0; B.eyes = B.h > 0 ? 'dizzy' : 'normal';
@@ -388,6 +484,37 @@
         every('m', .25, dt, () => puff('star', B.x + rand(-25, 25), pathY(B.x) - rand(0, 10), { vx: rand(-20, 20), vy: rand(-60, -20), life: .6, max: .6, s: rand(2, 4), c: [255, 255, 220] }));
         break;
       case 'look': B.vx = 0; B.lookY = -4; B.rot = -.08 * B.face; break;
+      case 'talk': {
+        if (B.flags.li === undefined) { B.flags.li = -1; B.flags.next = .4; }
+        if (t >= B.flags.next) {
+          const L = B.dialog.lines[++B.flags.li];
+          if (!L) { B.dur = 0; B.flags.act = null; B.vx = 0; break; }
+          const [who, text, act = null] = L, d = 1.3 + text.length * .05;
+          B.flags.next = t + d + .3; B.flags.act = act; B.flags.actT = 0; B.flags.clap = false;
+          if (who !== 'C') say(text, d + .2);
+          if (who !== 'B') codexSay(text, d + .2);
+          if (act === 'bhop') B.vh = 430;
+          if (act === 'bspin') { B.vh = 640; B.spinning = true; B.spinAir = 0; }
+          if (act === 'cspin') C.spinT = .8;
+          if (act === 'highfive') { B.vh = 420; C.vh = 280; }
+          if (act === 'butterfly') spawnBf((B.x + C.x) / 2, pathY(B.x) - 95);
+        }
+        const act = B.flags.act;
+        B.flags.actT += dt;
+        B.vx = act === 'race' ? 230 : 0; moving = act === 'race';
+        B.face = act === 'race' || C.x > B.x ? 1 : -1;
+        B.eyes = ['bhappy', 'bhearts', 'bothhappy', 'bothhearts', 'bothdance', 'bdance', 'highfive'].includes(act) ? 'happy' : act === 'bsleepy' ? 'closed' : 'normal';
+        B.dancing = act === 'bdance' || act === 'bothdance';
+        if (B.dancing) { B.h = Math.abs(Math.sin(t * 7)) * 14; B.vh = 0; B.rot = Math.sin(t * 7) * .15; B.wave = 1; }
+        else { B.wave = 0; if (!B.spinning) B.rot = 0; }
+        if (act === 'bhearts' || act === 'bothhearts') every('h', .35, dt, () => sfx('pling') || puff('heart', B.x + rand(-10, 10), headY(), { vx: rand(-15, 15), vy: -45, life: 1.3, max: 1.3, s: rand(6, 9), c: [255, 110, 140] }));
+        if (act === 'highfive' && !B.flags.clap && B.flags.actT > .3) {
+          B.flags.clap = true; sfx('clap');
+          const mx = (B.x + C.x) / 2, my = pathY(B.x) - 80;
+          for (let i = 0; i < 10; i++) puff('star', mx, my, { vx: rand(-150, 150), vy: rand(-240, -60), life: .9, max: .9, s: rand(4, 7), c: pick([[255, 215, 90], [150, 220, 255]]) });
+        }
+        break;
+      }
       case 'nap':
         B.vx = 0; B.eyes = 'closed'; B.sq = Math.sin(t * 2) * .04;
         every('z', .9, dt, () => sfx('snore') || puff('z', B.x + 18, headY(), { vx: 18, vy: -28, life: 2, max: 2, s: 14, c: [255, 255, 255] }));
@@ -396,11 +523,13 @@
     }
     B.moving = moving;
 
-    if (B.state !== 'dance') {
+    if (B.state !== 'dance' && !B.dancing) {
       if (B.vh > 0 && B.h === 0) sfx('jump');
       B.vh -= 1500 * dt; B.h += B.vh * dt;
+      if (B.spinning && B.h > 0) { B.spinAir += dt; B.rot = clamp(B.spinAir / .9, 0, 1) * Math.PI * 2 * B.face; }
       if (B.h <= 0) {
         if (B.vh < -250) { B.sq = .28; dust(B.x, 5); sfx('land'); }
+        if (B.spinning) { B.spinning = false; B.rot = 0; }
         B.h = 0; B.vh = 0;
       }
     }
@@ -794,25 +923,73 @@
     }
   }
 
-  function drawBubble() {
-    const b = B.bubble; if (!b) return;
+  function drawBubble(b, ax, ay, codex) {
+    if (!b) return;
     const pop = Math.min(1, b.t / .18), s = pop < 1 ? 1 + 2.2 * Math.pow(pop - 1, 3) + 1.2 * Math.pow(pop - 1, 2) : 1;
     const a = Math.min(1, (b.dur - b.t) / .25);
-    ctx.font = `500 16px ${FONT}`;
+    ctx.font = codex ? `500 14px ${CODEX_FONT}` : `500 16px ${FONT}`;
     const tw = ctx.measureText(b.text).width, w = tw + 24, h = 32;
-    const ax = B.x - cam, ay = pathY(B.x) - B.h - 66;
     const bx = clamp(ax - w / 2, 10, W - w - 10), by = ay - h;
+    const tail = clamp(ax, bx + 16, bx + w - 16);
+    const fill = codex ? 'rgba(36,38,50,.96)' : 'rgba(255,252,246,.96)';
     ctx.save(); ctx.globalAlpha = clamp(a, 0, 1);
     ctx.translate(ax, ay); ctx.scale(s, s); ctx.translate(-ax, -ay);
-    ctx.fillStyle = 'rgba(255,252,246,.96)'; ctx.strokeStyle = 'rgba(60,40,70,.18)'; ctx.lineWidth = 1.5;
+    ctx.fillStyle = fill; ctx.strokeStyle = codex ? 'rgba(160,220,255,.35)' : 'rgba(60,40,70,.18)'; ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(bx, by, w, h, 14) : ctx.rect(bx, by, w, h);
-    ctx.moveTo(ax - 7, by + h - 1); ctx.lineTo(ax, by + h + 9); ctx.lineTo(ax + 7, by + h - 1);
+    ctx.roundRect ? ctx.roundRect(bx, by, w, h, codex ? 9 : 14) : ctx.rect(bx, by, w, h);
+    ctx.moveTo(tail - 7, by + h - 1); ctx.lineTo(tail, by + h + 9); ctx.lineTo(tail + 7, by + h - 1);
     ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,252,246,1)'; ctx.fillRect(ax - 6, by + h - 3, 12, 3);
-    ctx.fillStyle = '#2b2340'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = fill; ctx.fillRect(tail - 6, by + h - 3, 12, 3);
+    ctx.fillStyle = codex ? '#e9f4ff' : '#2b2340'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
     ctx.fillText(b.text, bx + 12, by + h / 2 + 1);
     ctx.textBaseline = 'alphabetic';
+    ctx.restore();
+  }
+
+  function drawCodex() {
+    const sx = C.x - cam, gy = pathY(C.x), hy = codexY();
+    if (sx < -90 || sx > W + 90) return;
+    const k = 1 / (1 + Math.max(0, gy - hy - 30) / 90);
+    ctx.fillStyle = `rgba(30,50,20,${.2 * k})`;
+    ctx.beginPath(); ctx.ellipse(sx, gy + 3, 22 * k, 5 * k, 0, 0, 7); ctx.fill();
+    const g = ctx.createRadialGradient(sx, hy + 26, 0, sx, hy + 26, 24);
+    g.addColorStop(0, `rgba(170,230,255,${.5 + Math.sin(T * 20) * .1})`); g.addColorStop(1, 'rgba(170,230,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(sx, hy + 26, 24, 10, 0, 0, 7); ctx.fill();
+
+    ctx.save(); ctx.translate(sx, hy); ctx.rotate(C.rot); ctx.scale(C.face, 1);
+    const body = rgb(mix([54, 56, 72], [44, 44, 70], N * .5)), edge = rgb(mix([96, 100, 122], [70, 72, 104], N * .5));
+    ctx.strokeStyle = edge; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, -20); ctx.lineTo(3, -31); ctx.stroke();
+    ctx.fillStyle = `rgba(120,235,200,${.55 + .45 * Math.sin(T * 4)})`;
+    ctx.beginPath(); ctx.arc(3, -34, 4, 0, 7); ctx.fill();
+    const wav = C.eyes === 'happy' ? Math.sin(T * 12) * .5 : Math.sin(T * 2.4) * .12;
+    ctx.fillStyle = body;
+    for (const sd of [-1, 1]) {
+      ctx.save(); ctx.translate(23 * sd, 3); ctx.rotate((.3 - wav) * sd);
+      ctx.beginPath(); ctx.ellipse(4 * sd, 0, 7, 4.5, 0, 0, 7); ctx.fill(); ctx.restore();
+    }
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-23, -20, 46, 40, 13) : ctx.rect(-23, -20, 46, 40);
+    ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#11131a';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-17, -14, 34, 25, 8) : ctx.rect(-17, -14, 34, 25); ctx.fill();
+
+    ctx.strokeStyle = ctx.fillStyle = '#e9f6ff'; ctx.lineWidth = 2.6; ctx.lineJoin = 'round';
+    ctx.shadowColor = 'rgba(150,225,255,.9)'; ctx.shadowBlur = 6;
+    ctx.beginPath();
+    if (C.eyes === 'happy') { for (const x of [-6, 6]) { ctx.moveTo(x - 4, 0); ctx.lineTo(x, -5); ctx.lineTo(x + 4, 0); } ctx.stroke(); }
+    else if (C.eyes === 'sleepy') { for (const x of [-6, 6]) { ctx.moveTo(x - 4, -2); ctx.lineTo(x + 4, -2); } ctx.stroke(); }
+    else if (C.eyes === 'surprised') { ctx.arc(-6, -3, 3.3, 0, 7); ctx.moveTo(9.3, -3); ctx.arc(6, -3, 3.3, 0, 7); ctx.stroke(); }
+    else {
+      // terminal face: a ">" prompt eye and a blinking "_" cursor
+      if (C.blink > 0) { ctx.moveTo(-11, -2); ctx.lineTo(-4, -2); } else { ctx.moveTo(-11, -7); ctx.lineTo(-5, -2.5); ctx.lineTo(-11, 2); }
+      ctx.stroke();
+      if ((T * 1.8) % 1 < .6) ctx.fillRect(1, 0, 10, 3);
+    }
+    ctx.shadowBlur = 0;
+    if (C.eyes === 'happy') {
+      ctx.fillStyle = 'rgba(255,140,170,.6)';
+      ctx.beginPath(); ctx.ellipse(-13, 15, 3.5, 1.8, 0, 0, 7); ctx.ellipse(13, 15, 3.5, 1.8, 0, 0, 7); ctx.fill();
+    }
     ctx.restore();
   }
 
@@ -829,10 +1006,11 @@
 
     if (dt > 0) {
       updateBot(dt);
+      updateCodex(dt);
       updateCritters(dt);
       updateParticles(dt);
     }
-    cam += (B.x - W * .38 - cam) * Math.min(1, dt * 2.5);
+    cam += (B.x - Math.max(W * .38, 175) - cam) * Math.min(1, dt * 2.5);
 
     drawSky();
     drawSunMoon(phase);
@@ -846,11 +1024,13 @@
     drawMeadow();
     drawFireflies();
     for (const b of butterflies) if (!b.chased) drawButterfly(b);
+    drawCodex();
     drawBot();
     for (const b of butterflies) if (b.chased) drawButterfly(b);
     drawParticles();
     drawForeground();
-    drawBubble();
+    drawBubble(C.bubble, C.x - cam, codexY() - 56 - (B.bubble ? 44 : 0), true);
+    drawBubble(B.bubble, B.x - cam, pathY(B.x) - B.h - 66, false);
   }
 
   // ---------- input ----------
@@ -872,6 +1052,12 @@
     // generous hit area around Clawd's body, so a finger on a phone finds him easily
     const bx = B.x - cam + (B.state === 'trip' ? B.face * 24 * Math.abs(Math.sin(B.rot)) : 0);
     const by = pathY(B.x) - B.h - 28;
+    const qx = C.x - cam, qy = codexY() - 4;
+    if (Math.hypot(cx - qx, cy - qy) < 58 && Math.hypot(cx - qx, cy - qy) < Math.hypot(cx - bx, cy - by)) {
+      C.spinT = .8;
+      codexSay(pick(['Beep! Kitzeln ist nicht dokumentiert!', 'Hallo! Ich bin Codex.', 'Kompiliere Freude ...', 'Hihi! 200 OK!', 'Ping? Pong!', 'Huiii! Nochmal!']), 1.8);
+      return;
+    }
     if (Math.abs(cx - bx) < 70 && Math.abs(cy - by) < 72) {
       if (B.h > 1) { say(pick(['Wiiiii!', 'Huiii!']), 1); return; }
       const wasNap = B.state === 'nap';
@@ -887,7 +1073,8 @@
   setTimeout(() => hint.classList.add('gone'), 9000);
 
   // ---------- boot ----------
-  cam = B.x - W * .38;
+  cam = B.x - Math.max(W * .38, 175);
+  C.x = cam - 300;
   for (let i = 0; i < 3; i++) spawnBf(cam + W * (.5 + i * .2), pathY(cam + W * .6) - rand(70, 160));
   setState('wave');
   say('Hallo! Ich bin Clawd.', 2.4);
