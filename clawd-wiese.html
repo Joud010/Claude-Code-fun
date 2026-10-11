@@ -19,20 +19,26 @@
   canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: pointer; touch-action: manipulation; }
   .card {
     position: fixed; left: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    max-width: calc(100% - 104px); padding: 10px 14px; border-radius: 14px;
+    max-width: calc(100% - 172px); padding: 10px 14px; border-radius: 14px;
     background: var(--card); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-    box-shadow: 0 6px 22px rgba(40, 30, 60, 0.18);
+    box-shadow: 0 6px 22px rgba(40, 30, 60, 0.18); pointer-events: none;
   }
   .card h1 { margin: 0; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.01em; text-wrap: balance; }
   .card p { margin: 2px 0 0; font-size: 0.86rem; opacity: 0.82; }
-  #play {
-    position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    width: 52px; height: 52px; border: 0; border-radius: 50%;
-    background: var(--clay); color: #fff; font: 600 1.05rem var(--font-display); cursor: pointer;
-    box-shadow: 0 6px 18px rgba(120, 50, 30, 0.35); transition: transform .15s, background .15s;
+  .controls { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 10px; }
+  .controls button {
+    position: relative; width: 52px; height: 52px; border: 0; border-radius: 50%;
+    background: var(--clay); color: #fff; font: 600 1.1rem var(--font-display); cursor: pointer;
+    box-shadow: 0 6px 18px rgba(120, 50, 30, 0.35); transition: transform .15s, background .15s, color .15s;
   }
-  #play:hover { background: var(--clay-deep); transform: scale(1.06); }
-  #play:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  .controls button:hover { background: var(--clay-deep); transform: scale(1.06); }
+  .controls button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+  #sound.off { background: var(--card); color: var(--clay-deep); }
+  #sound.off::after { content: ""; position: absolute; left: 13px; right: 13px; top: 50%; height: 2.5px; border-radius: 2px; background: currentColor; transform: rotate(-45deg); }
+  @media (max-width: 600px) {
+    .card { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto; left: 16px; max-width: calc(100% - 32px); }
+    body .hint { top: calc(86px + env(safe-area-inset-top, 0px)); }
+  }
   .hint {
     position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
     width: max-content; max-width: calc(100% - 32px); padding: 7px 14px; border-radius: 999px;
@@ -43,12 +49,15 @@
 </style>
 
 <canvas id="scene" aria-label="Animation: der kleine Claude-Code-Bot Clawd läuft durch eine Fantasy-Landschaft mit Wiesen und Bergen und albert herum"></canvas>
-<div class="hint" id="hint">Tipp auf Clawd für einen Trick · tipp in die Landschaft für Schmetterlinge</div>
+<div class="hint" id="hint">Tippen startet die Musik · tipp auf Clawd für einen Trick</div>
 <div class="card">
   <h1>Clawds Wiesenausflug</h1>
   <p id="status">Clawd winkt dir zu</p>
 </div>
-<button id="play" type="button" aria-label="Pause">❚❚</button>
+<div class="controls">
+  <button id="sound" class="off" type="button" aria-label="Ton an" aria-pressed="false">♪</button>
+  <button id="play" type="button" aria-label="Pause">❚❚</button>
+</div>
 
 <script>
 (() => {
@@ -90,6 +99,132 @@
     return d;
   };
   const haze = (c, a) => mix(shade(c), skyHor, a);
+
+  // ---------- sound: generated music, robot babble, effects ----------
+  const soundBtn = document.getElementById('sound');
+  const SND = { ac: null, master: null, music: null, sfx: null, noise: null, on: false, muted: false, next: 0, step: 0, timer: null };
+  const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+  function audioInit() {
+    if (SND.ac) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    try {
+      const ac = SND.ac = new AC();
+      SND.master = ac.createGain(); SND.master.gain.value = .85; SND.master.connect(ac.destination);
+      SND.music = ac.createGain(); SND.music.gain.value = .3; SND.music.connect(SND.master);
+      SND.sfx = ac.createGain(); SND.sfx.gain.value = .6; SND.sfx.connect(SND.master);
+      const delay = ac.createDelay(1), fb = ac.createGain(), wet = ac.createGain();
+      delay.delayTime.value = .345; fb.gain.value = .28; wet.gain.value = .2;
+      SND.music.connect(delay); SND.sfx.connect(delay); delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(SND.master);
+      const buf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      SND.noise = buf;
+      return true;
+    } catch (e) { SND.ac = null; return false; }
+  }
+  function tone(o) {
+    const ac = SND.ac, t = o.t ?? ac.currentTime, dur = o.dur, rel = o.rel ?? .08, atk = o.atk ?? .008;
+    const osc = ac.createOscillator(), g = ac.createGain();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.f, t);
+    if (o.f2) osc.frequency.exponentialRampToValueAtTime(o.f2, t + dur);
+    if (o.vib) {
+      const l = ac.createOscillator(), lg = ac.createGain();
+      l.frequency.value = o.vib; lg.gain.value = o.f * .03; l.connect(lg); lg.connect(osc.frequency);
+      l.start(t); l.stop(t + dur + rel + .05);
+    }
+    g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(o.v, t + atk);
+    if (!o.pluck) g.gain.setValueAtTime(o.v, t + Math.max(atk, dur));
+    g.gain.exponentialRampToValueAtTime(.0001, t + dur + rel);
+    let node = osc;
+    if (o.filt) { const f = ac.createBiquadFilter(); f.type = o.filt[0]; f.frequency.value = o.filt[1]; f.Q.value = o.filt[2] || 1; osc.connect(f); node = f; }
+    node.connect(g); g.connect(o.bus || SND.sfx);
+    osc.start(t); osc.stop(t + dur + rel + .05);
+  }
+  function noiseHit(t, dur, v, filt, bus) {
+    const ac = SND.ac, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+    s.buffer = SND.noise; f.type = filt[0]; f.frequency.value = filt[1]; f.Q.value = filt[2] || 1;
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(bus || SND.sfx); s.start(t, Math.random() * .5); s.stop(t + dur + .02);
+  }
+
+  // a sunny little I–vi–IV–V loop; every second round the melody improvises on the pentatonic scale
+  const EIGHTH = 60 / 104 / 2;
+  const CHORDS = [[48, [60, 64, 67]], [45, [57, 60, 64]], [41, [53, 57, 60]], [43, [55, 59, 62]]];
+  const MELODY = [72, 0, 76, 79, 76, 0, 74, 72, 69, 0, 72, 76, 74, 72, 0, 69, 72, 0, 74, 77, 76, 74, 72, 0, 74, 0, 79, 77, 76, 74, 71, 0];
+  const PENTA = [60, 62, 64, 67, 69, 72, 74, 76, 79, 81];
+  function scheduleStep(s, t) {
+    const bar = Math.floor(s / 8) % 4, beat = s % 8, loop = Math.floor(s / 32);
+    const [bass, triad] = CHORDS[bar];
+    const night = N > .6;
+    if (beat === 0) triad.forEach(m => tone({ f: mtof(m), t, dur: EIGHTH * 7, v: .04, atk: .25, rel: .5, bus: SND.music }));
+    if (beat === 0 || beat === 4 || (beat === 6 && !night)) tone({ f: mtof(bass + (beat === 6 ? 7 : 0)), t, dur: EIGHTH * 1.5, v: .2, type: 'triangle', pluck: true, rel: .1, bus: SND.music });
+    if (!night && (beat === 0 || beat === 4)) tone({ f: 140, f2: 45, t, dur: .14, v: .3, pluck: true, bus: SND.music });
+    if (!night && beat % 2 === 1) noiseHit(t, .05, .045, ['highpass', 7000], SND.music);
+    if (B.state === 'nap') return;
+    let m = MELODY[s % 32];
+    if (loop % 2 === 1) {
+      m = hash(s * 3.7 + loop * 11.3) < .55 ? PENTA[Math.floor(hash(s * 1.9 + loop) * PENTA.length)] : 0;
+      if (beat === 0) m = triad[0] + 12;
+    }
+    if (m) {
+      tone({ f: mtof(m), t, dur: EIGHTH * .8, v: night ? .035 : .055, type: 'square', pluck: true, rel: .12, filt: ['lowpass', night ? 1100 : 2400], bus: SND.music });
+      if (beat === 0) tone({ f: mtof(m + 12), t, dur: .4, v: .04, pluck: true, rel: .3, bus: SND.music });
+    }
+  }
+  function musicTick() {
+    if (!SND.on || !playing) return;
+    const now = SND.ac.currentTime;
+    if (SND.next < now) SND.next = now + .05;
+    while (SND.next < now + .2) { scheduleStep(SND.step, SND.next); SND.next += EIGHTH; SND.step++; }
+  }
+
+  const SFX = {
+    // beep-boop gibberish: one blip per ~3 letters, ending up for ?/! and down otherwise
+    voice(text) {
+      let t = SND.ac.currentTime + .02;
+      const ex = text.includes('!'), q = text.includes('?');
+      const n = clamp(Math.round(text.replace(/[^a-zäöüß]/gi, '').length / 3), 2, 9);
+      const base = ex ? 720 : 580;
+      for (let i = 0; i < n; i++) {
+        const d = rand(.055, .11), f = base * Math.pow(2, rand(-3, 8) / 12);
+        const f2 = i === n - 1 ? f * (q ? 1.6 : ex ? 1.35 : .75) : f * rand(.85, 1.2);
+        tone({ f, f2, t, dur: d, v: .08, type: 'square', rel: .03, filt: ['bandpass', 1500, 1.5] });
+        tone({ f, f2, t, dur: d, v: .07, rel: .03 });
+        t += d + rand(.02, .06);
+      }
+    },
+    sneeze() {
+      const t = SND.ac.currentTime;
+      tone({ f: 500, f2: 950, t, dur: .28, v: .07, vib: 18 });
+      noiseHit(t + .3, .35, .3, ['bandpass', 2500, .8]);
+      tone({ f: 900, f2: 280, t: t + .3, dur: .2, v: .08, type: 'square', filt: ['lowpass', 2000] });
+    },
+    yawn() { tone({ f: 520, f2: 250, dur: .9, v: .09, type: 'triangle', atk: .15, vib: 5 }); },
+    jump() { tone({ f: 260, f2: 660, dur: .14, v: .1, pluck: true }); },
+    land() { tone({ f: 160, f2: 60, dur: .1, v: .2, pluck: true }); },
+    tadaa() { const t = SND.ac.currentTime; [72, 76, 79, 84].forEach((m, i) => tone({ f: mtof(m), t: t + i * .07, dur: .25, v: .07, type: 'triangle', pluck: true, rel: .3 })); },
+    bonk() { const t = SND.ac.currentTime; tone({ f: 420, f2: 140, t, dur: .18, v: .15, type: 'triangle', pluck: true }); tone({ f: 1200, f2: 900, t: t + .05, dur: .5, v: .03, vib: 14 }); },
+    pling() { tone({ f: rand(1300, 1900), dur: .08, v: .03, pluck: true, rel: .15 }); },
+    snore() { tone({ f: 110, f2: 85, dur: .6, v: .07, type: 'sawtooth', atk: .2, filt: ['lowpass', 380] }); },
+    sparkle() { const t = SND.ac.currentTime; [88, 91, 96].forEach((m, i) => tone({ f: mtof(m), t: t + i * .05, dur: .06, v: .035, pluck: true, rel: .2 })); },
+  };
+  function sfx(name, arg) {
+    if (!SND.on || !playing || !SND.ac) return;
+    try { SFX[name](arg); } catch (e) { /* audio is a bonus; never break the animation */ }
+  }
+  function setSound(on) {
+    if (on && !audioInit()) { soundBtn.hidden = true; return; }
+    SND.on = on;
+    if (on) {
+      SND.ac.resume();
+      if (!SND.timer) SND.timer = setInterval(musicTick, 50);
+    } else if (SND.ac) SND.ac.suspend();
+    soundBtn.classList.toggle('off', !on);
+    soundBtn.setAttribute('aria-pressed', String(on));
+    soundBtn.setAttribute('aria-label', on ? 'Ton aus' : 'Ton an');
+  }
+  soundBtn.addEventListener('click', () => { SND.muted = SND.on; setSound(!SND.on); });
 
   // ---------- terrain ----------
   const groundY = wx => H * .8 + Math.sin(wx * .0035) * 10 + Math.sin(wx * .009 + 2) * 5;
@@ -134,7 +269,10 @@
   };
   const DUR = { hop: 2.4, spin: 1.9, wave: 2.6, chase: 5.2, trip: 3.4, dance: 3.6, flower: 3.6, moonwalk: 3, look: 3.2, nap: 6.5 };
 
-  function say(text, dur = 2.2) { B.bubble = { text, t: 0, dur }; }
+  function say(text, dur = 2.2) {
+    B.bubble = { text, t: 0, dur };
+    sfx(text.startsWith('HATSCHI') ? 'sneeze' : text.includes('gähn') ? 'yawn' : 'voice', text);
+  }
 
   function setState(s) {
     if (B.state !== 'walk') B.lastTrick = B.state;
@@ -192,7 +330,7 @@
         if (!B.flags.j) { B.sq = .2; if (t > .2) { B.flags.j = 1; B.vh = 640; B.sq = -.18; } }
         else if (B.h > 0) { B.flags.air = (B.flags.air || 0) + dt; B.rot = clamp(B.flags.air / .9, 0, 1) * Math.PI * 2 * B.face; }
         else if (!B.flags.land) {
-          B.flags.land = 1; B.rot = 0; say('Tadaa!', 1.2); B.eyes = 'happy';
+          B.flags.land = 1; B.rot = 0; say('Tadaa!', 1.2); sfx('tadaa'); B.eyes = 'happy';
           for (let i = 0; i < 8; i++) puff('star', B.x, headY() + 20, { vx: rand(-140, 140), vy: rand(-260, -80), life: .9, max: .9, s: rand(4, 7), c: [255, 215, 90] });
         }
         if (B.flags.land) B.vx = 0;
@@ -214,7 +352,7 @@
       case 'trip':
         if (t < .5) { B.vx = 100; moving = true; }
         else {
-          if (!B.flags.f) { B.flags.f = 1; say('Huch!', 1.1); dust(B.x + 30, 8); }
+          if (!B.flags.f) { B.flags.f = 1; say('Huch!', 1.1); sfx('bonk'); dust(B.x + 30, 8); }
           B.vx *= Math.exp(-dt * 6);
           const fall = t < 2.4 ? smooth(.5, .72, t) : 1 - smooth(2.4, 2.7, t);
           B.rot = fall * Math.PI / 2 * B.face;
@@ -233,7 +371,7 @@
         if (B.flags.sneeze === undefined && t > 1.6) B.flags.sneeze = Math.random() < .55;
         if (!B.flags.sneeze) {
           B.rot = (smooth(0, .5, t) - smooth(2.8, 3.3, t)) * .25 * B.face; B.eyes = 'happy';
-          if (t < 2.9) every('h', .3, dt, () => puff('heart', B.x + rand(-6, 30), headY(), { vx: rand(-15, 15), vy: -45, life: 1.3, max: 1.3, s: rand(6, 9), c: [255, 110, 140] }));
+          if (t < 2.9) every('h', .3, dt, () => sfx('pling') || puff('heart', B.x + rand(-6, 30), headY(), { vx: rand(-15, 15), vy: -45, life: 1.3, max: 1.3, s: rand(6, 9), c: [255, 110, 140] }));
         } else if (t < 1.9) {
           B.eyes = 'closed'; B.rot = (.25 + Math.sin(t * 30) * .03) * B.face; B.sq = -.06;
         } else {
@@ -252,16 +390,17 @@
       case 'look': B.vx = 0; B.lookY = -4; B.rot = -.08 * B.face; break;
       case 'nap':
         B.vx = 0; B.eyes = 'closed'; B.sq = Math.sin(t * 2) * .04;
-        every('z', .9, dt, () => puff('z', B.x + 18, headY(), { vx: 18, vy: -28, life: 2, max: 2, s: 14, c: [255, 255, 255] }));
+        every('z', .9, dt, () => sfx('snore') || puff('z', B.x + 18, headY(), { vx: 18, vy: -28, life: 2, max: 2, s: 14, c: [255, 255, 255] }));
         if (t > B.dur - .3 && !B.flags.w) { B.flags.w = 1; say('Gut geschlafen!', 1.4); }
         break;
     }
     B.moving = moving;
 
     if (B.state !== 'dance') {
+      if (B.vh > 0 && B.h === 0) sfx('jump');
       B.vh -= 1500 * dt; B.h += B.vh * dt;
       if (B.h <= 0) {
-        if (B.vh < -250) { B.sq = .28; dust(B.x, 5); }
+        if (B.vh < -250) { B.sq = .28; dust(B.x, 5); sfx('land'); }
         B.h = 0; B.vh = 0;
       }
     }
@@ -720,22 +859,27 @@
     playing = v;
     btn.textContent = v ? '❚❚' : '▶';
     btn.setAttribute('aria-label', v ? 'Pause' : 'Abspielen');
+    if (SND.on && SND.ac) v ? SND.ac.resume() : SND.ac.suspend();
   }
-  btn.addEventListener('click', () => setPlaying(!playing));
+  btn.addEventListener('click', () => { if (!SND.on && !SND.muted) setSound(true); setPlaying(!playing); });
   window.addEventListener('keydown', e => { if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); setPlaying(!playing); } });
 
   cv.addEventListener('pointerdown', e => {
     hint.classList.add('gone');
+    if (!SND.on && !SND.muted) setSound(true);
+    if (!playing) setPlaying(true);
     const r = cv.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
-    const sx = B.x - cam, sy = pathY(B.x) - B.h;
-    if (Math.abs(cx - sx) < 46 && cy > sy - 70 && cy < sy + 12) {
-      if (B.h === 0 && ['walk', 'look', 'wave', 'nap', 'moonwalk'].includes(B.state)) {
-        setState(pick(['spin', 'hop', 'dance']));
-        say(B.lastTrick === 'nap' ? 'Huch, bin wach!' : pick(['Hihi, das kitzelt!', 'Hey, du!', 'Okay, okay!']), 1.4);
-      } else say(pick(['Hihi!', 'Ich bin beschäftigt!', 'Moment!']), 1);
-      if (!playing) setPlaying(true);
+    // generous hit area around Clawd's body, so a finger on a phone finds him easily
+    const bx = B.x - cam + (B.state === 'trip' ? B.face * 24 * Math.abs(Math.sin(B.rot)) : 0);
+    const by = pathY(B.x) - B.h - 28;
+    if (Math.abs(cx - bx) < 70 && Math.abs(cy - by) < 72) {
+      if (B.h > 1) { say(pick(['Wiiiii!', 'Huiii!']), 1); return; }
+      const wasNap = B.state === 'nap';
+      setState(pick(['spin', 'hop', 'dance'].filter(s => s !== B.state)));
+      say(wasNap ? 'Huch, bin wach!' : pick(['Hihi, das kitzelt!', 'Hey, du!', 'Okay, okay!', 'Juhuu!']), 1.4);
     } else {
       spawnBf(cam + cx, cy);
+      sfx('sparkle');
       for (let i = 0; i < 5; i++) puff('star', cam + cx, cy, { vx: rand(-80, 80), vy: rand(-120, -20), life: .6, max: .6, s: rand(2, 4), c: [255, 240, 180] });
       if (B.state === 'walk' && Math.random() < .5) say(pick(['Oh, wie hübsch!', 'Ein neuer Freund!', 'Ooh!']), 1.4);
     }
