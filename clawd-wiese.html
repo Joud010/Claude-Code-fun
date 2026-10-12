@@ -222,6 +222,25 @@
       if (q) tone({ f: base * 2, f2: base * 3, t, dur: .1, v: .05, pluck: true });
     },
     clap() { const t = SND.ac.currentTime; noiseHit(t, .09, .5, ['bandpass', 1800, .7]); noiseHit(t + .015, .07, .3, ['bandpass', 1200, .7]); SFX.tadaa(); },
+    pop() { tone({ f: 300, f2: 900, dur: .09, v: .12, pluck: true }); },
+    fwoosh() {
+      const ac = SND.ac, t = ac.currentTime, src = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain();
+      src.buffer = SND.noise; f.type = 'bandpass'; f.Q.value = .8;
+      f.frequency.setValueAtTime(250, t); f.frequency.exponentialRampToValueAtTime(2200, t + .45);
+      g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.35, t + .12); g.gain.exponentialRampToValueAtTime(.0001, t + .7);
+      src.connect(f); f.connect(g); g.connect(SND.sfx); src.start(t); src.stop(t + .75);
+    },
+    crackle() { noiseHit(SND.ac.currentTime, rand(.01, .03), rand(.06, .16), ['highpass', rand(1500, 4000)]); },
+    blow() { noiseHit(SND.ac.currentTime, .6, .25, ['lowpass', 900]); },
+    // a little campfire song, Clawd on top and Codex an octave below
+    sing() {
+      const t = SND.ac.currentTime;
+      [76, 74, 72, 74, 76, 76, 76].forEach((m, i) => {
+        const d = i === 6 ? .6 : .26;
+        tone({ f: mtof(m), t: t + i * .3, dur: d, v: .06, type: 'triangle', rel: .15, vib: 5 });
+        tone({ f: mtof(m - 12), t: t + i * .3, dur: d, v: .05, rel: .15 });
+      });
+    },
     sparkle() { const t = SND.ac.currentTime; [88, 91, 96].forEach((m, i) => tone({ f: mtof(m), t: t + i * .05, dur: .06, v: .035, pluck: true, rel: .2 })); },
   };
   function sfx(name, arg) {
@@ -276,14 +295,14 @@
   // ---------- Clawd ----------
   const B = { x: 0, h: 0, vh: 0, vx: 0, face: 1, state: 'walk', t: 0, dur: 3, anim: 0, rot: 0, sq: 0, wave: 0,
     eyes: 'normal', lookY: 0, moving: false, flags: {}, blinkT: 2, blink: 0, bubble: null, lastTrick: '', target: null, flower: null, napped: false,
-    introDone: false, spinning: false, spinAir: 0, dancing: false, dialog: null };
+    introDone: false, spinning: false, spinAir: 0, dancing: false, dialog: null, sit: false, inTent: false, camped: false };
 
   const LABELS = {
     walk: 'spaziert über die Wiese', hop: 'hüpft herum', spin: 'macht einen Salto', wave: 'winkt dir zu',
     chase: 'jagt einen Schmetterling', trip: 'stolpert über einen Grashalm', dance: 'tanzt', flower: 'schnuppert an einer Blume',
-    moonwalk: 'macht den Moonwalk', look: 'bestaunt die Berge', nap: 'macht ein Nickerchen', talk: 'quatscht mit Codex'
+    moonwalk: 'macht den Moonwalk', look: 'bestaunt die Berge', nap: 'macht ein Nickerchen', talk: 'quatscht mit Codex', camp: 'zeltet mit Codex'
   };
-  const DUR = { hop: 2.4, spin: 1.9, wave: 2.6, chase: 5.2, trip: 3.4, dance: 3.6, flower: 3.6, moonwalk: 3, look: 3.2, nap: 6.5, talk: 99 };
+  const DUR = { hop: 2.4, spin: 1.9, wave: 2.6, chase: 5.2, trip: 3.4, dance: 3.6, flower: 3.6, moonwalk: 3, look: 3.2, nap: 6.5, talk: 99, camp: 999 };
 
   function say(text, dur = 2.2) {
     B.bubble = { text, t: 0, dur };
@@ -294,7 +313,7 @@
     if (B.state !== 'walk') B.lastTrick = B.state;
     if (B.target) { B.target.chased = false; B.target = null; }
     B.state = s; B.t = 0; B.flags = {}; B.eyes = 'normal'; B.lookY = 0; B.wave = 0; B.rot = 0;
-    B.spinning = false; B.dancing = false;
+    B.spinning = false; B.dancing = false; B.sit = false; B.inTent = false;
     B.dur = s === 'walk' ? rand(2.5, 5) : DUR[s];
     statusEl.textContent = s === 'talk' ? 'Clawd und Codex quatschen' : 'Clawd ' + LABELS[s];
     if (REACT[s] && B.introDone && Math.random() < .6) codexSay(pick(REACT[s]), 1.8, rand(1, 1.5));
@@ -322,6 +341,8 @@
 
   function nextState() {
     if (B.state !== 'walk') { setState('walk'); return; }
+    if (N < .2) B.camped = false;
+    if (N > .2 && !B.camped && B.introDone) { B.camped = true; startCamp(); return; }
     if (N < .3) B.napped = false;
     if (N > .75 && !B.napped && Math.random() < .55) { B.napped = true; setState('nap'); return; }
     if (!B.introDone || Math.random() < .42) { startDialog(); return; }
@@ -358,6 +379,78 @@
     { night: true, lines: [['C', 'Clawd ... schläfst du schon?'], ['B', 'Zzz ... ja ...', 'bsleepy'], ['C', 'Okay. Gute Nacht, Kumpel.', 'chearts']] },
     { night: true, lines: [['B', 'Schau mal, so viele Sterne!', 'bhappy'], ['C', 'Ich zähle ... 140 Stück.'], ['B', 'Du hast sie gezählt?!', 'bhop'], ['C', 'Zweimal. Zur Sicherheit.', 'chappy']] },
   ];
+  // ---------- campfire night ----------
+  let CAMP = null, shootStar = null;
+  const sparks = n => { for (let i = 0; i < n; i++) puff('spark', CAMP.x + rand(-8, 8), pathY(CAMP.x) - 18, { vx: rand(-30, 30), vy: rand(-150, -60), life: rand(.6, 1.2), max: 1.2, s: rand(1.4, 2.4), c: [255, rand(150, 220), 80] }); };
+  const smoke = (x, y, n) => { for (let i = 0; i < n; i++) puff('smoke', x + rand(-6, 6), y, { vx: rand(-12, 12), vy: rand(-45, -20), life: 1.6, max: 1.6, s: rand(5, 9), c: [150, 150, 160] }); };
+  const loveB = () => { for (let i = 0; i < 5; i++) puff('heart', B.x + rand(-20, 20), pathY(B.x) - 60, { vx: rand(-25, 25), vy: rand(-60, -35), life: 1.4, max: 1.4, s: rand(6, 9), c: [255, 110, 140] }); };
+  const tentX = () => CAMP.x - 150;
+  // the evening, one timed beat after another (seconds since the camp began)
+  const CAMP_STEPS = [
+    [0, () => say('Es wird dunkel ... Zeit zum Campen!', 2.4)],
+    [2.6, () => { codexSay('Ich bau das Zelt auf!', 2); C.spinT = .8; }],
+    [3.4, () => { CAMP.tentTarget = 1; sfx('pop'); dust(tentX(), 8); }],
+    [5.2, () => { say('Und ich mach Feuer!', 2); CAMP.logs = true; sfx('land'); }],
+    [7.5, () => codexSay('sudo feuer --an', 1.8)],
+    [8.6, () => { CAMP.fireTarget = 1; sfx('fwoosh'); sparks(16); }],
+    [9.4, () => { say('Uiii, schön warm!', 1.8); CAMP.bEyes = 'happy'; CAMP.cEyes = 'happy'; }],
+    [11.4, () => { say('Marshmallows!!', 1.6); B.vh = 380; CAMP.cEyes = null; }],
+    [12.4, () => { B.sit = true; CAMP.sticks = true; CAMP.bEyes = null; }],
+    [13.6, () => codexSay('Ich röste meins perfekt. Exakt 3,7 Sekunden.', 2.6)],
+    [16.6, () => { CAMP.cFire = true; sfx('fwoosh'); CAMP.cEyes = 'surprised'; }],
+    [17.2, () => codexSay('Ähm ... Clawd? Es brennt!', 2)],
+    [19.4, () => { say('Pusten! Puuusten!', 1.8); B.vh = 300; }],
+    [21.2, () => { CAMP.cFire = false; CAMP.cBurnt = true; sfx('blow'); smoke(CAMP.x + 10, pathY(CAMP.x) - 50, 6); }],
+    [21.8, () => { codexSay('... jetzt ist es extra crispy.', 2.2); CAMP.cEyes = 'sleepy'; }],
+    [24.4, () => { say('Mmmh! Meins ist goldbraun!', 2.2); CAMP.bEaten = true; CAMP.bEyes = 'happy'; loveB(); sfx('tadaa'); }],
+    [27, () => { codexSay('Das ist kein Bug, das ist ein Feature.', 2.4); CAMP.cEyes = 'happy'; }],
+    [30, () => { say('Erzähl eine Gruselgeschichte!', 2.2); CAMP.bEyes = null; CAMP.cEyes = null; }],
+    [32.6, () => codexSay('Es war einmal ... ein Semikolon ...', 2.6)],
+    [35.6, () => { codexSay('... das FEHLTE!', 1.6); CAMP.cEyes = 'surprised'; CAMP.fire = 1.7; sparks(20); sfx('fwoosh'); }],
+    [36.4, () => { say('AAAAH!', 1.2); B.vh = 520; CAMP.bEyes = 'dizzy'; }],
+    [38.4, () => { say('Okay ... das war gruselig.', 2); CAMP.bEyes = null; CAMP.cEyes = 'happy'; }],
+    [41, () => { shootStar = { t: 0 }; sfx('sparkle'); }],
+    [41.3, () => { codexSay('Sternschnuppe! Wünsch dir was!', 2.2); CAMP.cEyes = null; }],
+    [44, () => { say('Ich wünsch mir ... noch ein Marshmallow.', 2.6); CAMP.bEyes = 'happy'; loveB(); }],
+    [47.2, () => { say('La la laaa ~', 2.6); codexSay('La la laaa ~', 2.6); CAMP.sing = true; CAMP.cEyes = 'happy'; sfx('sing'); }],
+    [50.2, () => { CAMP.sing = false; codexSay('Gute Nacht, Clawd.', 1.8); CAMP.bEyes = null; }],
+    [52.2, () => say('Gute Nacht, Codex.', 1.8)],
+    [54.4, () => { CAMP.sleep = true; B.inTent = true; B.sit = false; CAMP.sticks = false; CAMP.fireTarget = .35; CAMP.cEyes = 'sleepy'; dust(tentX(), 5); }],
+  ];
+  const MORNING = [
+    [0, () => { B.inTent = false; B.x = tentX() + 40; B.vh = 420; say('Guten Morgen!', 1.8); CAMP.bEyes = 'happy'; dust(tentX(), 6); }],
+    [1.6, () => { codexSay('Akku 100%! Guten Morgen!', 2); CAMP.cEyes = 'happy'; C.spinT = .8; }],
+    [4, () => { say('Zusammenpacken und weiter!', 2); CAMP.tentTarget = 0; CAMP.fireTarget = 0; CAMP.logs = false; smoke(CAMP.x, pathY(CAMP.x) - 10, 10); sfx('pop'); }],
+    [6.4, () => { CAMP.done = true; }],
+  ];
+  function startCamp() {
+    CAMP = { x: B.x + 70, si: 0, mi: 0, morning: -1, fire: 0, fireTarget: 0, tentS: 0, tentV: 0, tentTarget: 0, logs: false, sticks: false,
+      bMallow: 0, bEaten: false, cFire: false, cBurnt: false, sing: false, sleep: false, done: false, bEyes: null, cEyes: null, zt: 0, nt: 0 };
+    setState('camp');
+  }
+  function updateCamp(dt) {
+    if (shootStar) { shootStar.t += dt; if (shootStar.t > 1.3) shootStar = null; }
+    const K = CAMP; if (!K) return;
+    K.tentV += ((K.tentTarget - K.tentS) * 140 - K.tentV * 9) * dt;
+    K.tentS = Math.max(0, K.tentS + K.tentV * dt);
+    K.fire += (K.fireTarget - K.fire) * Math.min(1, dt * 1.5);
+    if (K.fire > .05) {
+      if (Math.random() < dt * 9 * K.fire) sparks(1);
+      if (Math.random() < dt * 6 * K.fire) sfx('crackle');
+    }
+    if (K.sticks && !K.bEaten) K.bMallow = Math.min(1, K.bMallow + dt * .07);
+    if (K.cFire && Math.random() < dt * 10) puff('spark', K.x + 10, pathY(K.x) - 50, { vx: rand(-20, 20), vy: rand(-90, -40), life: .7, max: .7, s: 1.6, c: [255, 190, 80] });
+    if (K.sing) {
+      K.nt += dt;
+      if (K.nt > .4) { K.nt = 0; puff('note', pick([B.x, C.x]) + rand(-15, 15), pathY(B.x) - 70, { vx: rand(-20, 20), vy: -55, life: 1.4, max: 1.4, s: rand(16, 22), c: pick([[255, 255, 255], [255, 225, 120], [170, 220, 255]]) }); }
+    }
+    if (K.sleep && B.inTent) {
+      K.zt += dt;
+      if (K.zt > 1.3) { K.zt = 0; sfx('snore'); puff('z', tentX() + 10, pathY(tentX()) - 60, { vx: 16, vy: -26, life: 2, max: 2, s: 14, c: [255, 255, 255] }); }
+    }
+    if (K.done && B.state !== 'camp' && K.tentS < .02 && K.fire < .03) CAMP = null;
+  }
+
   let dlgQueue = [];
   function startDialog() {
     let d;
@@ -375,12 +468,13 @@
     C.bubble = { text, t: 0, dur };
     sfx('cvoice', text);
   }
-  const codexY = () => pathY(C.x) - 36 - Math.sin(T * 2.4) * 5 - C.h + (B.state === 'nap' ? 10 : 0);
+  const codexY = () => pathY(C.x) - 36 - Math.sin(T * 2.4) * 5 - C.h + (B.state === 'nap' ? 10 : 0) + (B.state === 'camp' && CAMP ? (CAMP.sleep && CAMP.morning < 0 ? 16 : 8) : 0);
 
   function updateCodex(dt) {
     const talk = B.state === 'talk', act = talk ? B.flags.act : null;
     let tx = B.x - 100;
     if (!B.introDone) tx = cam - 260;
+    else if (B.state === 'camp' && CAMP) tx = CAMP.x + 62;
     else if (talk) tx = act === 'race' ? B.x + 150 : B.x - 92;
     else if (B.state === 'moonwalk') tx = B.x - 150;
     C.vx = clamp((tx - C.x) * 2.6, -300, 360);
@@ -390,11 +484,13 @@
     else { C.vh -= 900 * dt; C.h += C.vh * dt; if (C.h < 0) { C.h = 0; C.vh = 0; } }
     if (C.spinT > 0) { C.spinT -= dt; C.rot = C.spinT > 0 ? (1 - C.spinT / .8) * Math.PI * 2 * C.face : 0; }
     else C.rot = C.dancing ? Math.sin(T * 6) * .2 : clamp(C.vx * .0012, -.3, .3);
-    if (talk) C.face = act === 'race' || B.x >= C.x ? 1 : -1;
+    if (B.state === 'camp' && Math.abs(C.vx) < 40) C.face = -1;
+    else if (talk) C.face = act === 'race' || B.x >= C.x ? 1 : -1;
     else if (Math.abs(C.vx) > 25) C.face = C.vx > 0 ? 1 : -1;
 
     const happy = ['chappy', 'chearts', 'bothhappy', 'bothdance', 'bothhearts', 'highfive', 'cdance'].includes(act) || C.dancing;
     C.eyes = B.state === 'nap' ? 'sleepy' : act === 'csurprised' || (B.state === 'trip' && B.t > .5 && B.t < 2.6) ? 'surprised' : happy ? 'happy' : 'normal';
+    if (B.state === 'camp' && CAMP) C.eyes = CAMP.cEyes || 'normal';
     if (act === 'chearts' || act === 'bothhearts') {
       C.ht += dt;
       if (C.ht > .35) { C.ht = 0; sfx('pling'); puff('heart', C.x + rand(-12, 12), codexY() - 40, { vx: rand(-15, 15), vy: -45, life: 1.3, max: 1.3, s: rand(6, 9), c: [130, 200, 255] }); }
@@ -484,6 +580,17 @@
         every('m', .25, dt, () => puff('star', B.x + rand(-25, 25), pathY(B.x) - rand(0, 10), { vx: rand(-20, 20), vy: rand(-60, -20), life: .6, max: .6, s: rand(2, 4), c: [255, 255, 220] }));
         break;
       case 'look': B.vx = 0; B.lookY = -4; B.rot = -.08 * B.face; break;
+      case 'camp': {
+        const K = CAMP;
+        while (K.si < CAMP_STEPS.length && t >= CAMP_STEPS[K.si][0]) CAMP_STEPS[K.si++][1]();
+        if (K.sleep && K.morning < 0 && N < .25 && t > 60) K.morning = t;
+        if (K.morning >= 0) { const m = t - K.morning; while (K.mi < MORNING.length && m >= MORNING[K.mi][0]) MORNING[K.mi++][1](); }
+        if (K.done) { B.dur = 0; B.vx = 0; break; }
+        B.vx = B.inTent || K.morning >= 0 ? 0 : clamp((K.x - 62 - B.x) * 3, -70, 90);
+        moving = Math.abs(B.vx) > 8; B.face = 1;
+        B.eyes = K.bEyes || 'normal';
+        break;
+      }
       case 'talk': {
         if (B.flags.li === undefined) { B.flags.li = -1; B.flags.next = .4; }
         if (t >= B.flags.next) {
@@ -852,6 +959,8 @@
       if (p.type === 'dust') { ctx.fillStyle = rgb(shade(p.c), .7); ctx.beginPath(); ctx.arc(x, p.y, p.s * (1.6 - p.life / p.max), 0, 7); ctx.fill(); }
       else if (p.type === 'heart') { ctx.fillStyle = rgb(p.c); heartPath(x + Math.sin(p.life * 6) * 4, p.y, p.s); ctx.fill(); }
       else if (p.type === 'star') { ctx.fillStyle = rgb(p.c); starPath(x, p.y, p.s); ctx.fill(); }
+      else if (p.type === 'spark') { ctx.fillStyle = rgb(p.c); ctx.beginPath(); ctx.arc(x + Math.sin(p.life * 9) * 2, p.y, p.s * (p.life / p.max + .3), 0, 7); ctx.fill(); }
+      else if (p.type === 'smoke') { ctx.fillStyle = rgb(shade(p.c), .35); ctx.beginPath(); ctx.arc(x, p.y, p.s * (2 - p.life / p.max), 0, 7); ctx.fill(); }
       else if (p.type === 'petal') { ctx.fillStyle = rgb(shade(p.c)); ctx.save(); ctx.translate(x, p.y); ctx.rotate(p.rot); ctx.beginPath(); ctx.ellipse(0, 0, p.s, p.s * .55, 0, 0, 7); ctx.fill(); ctx.restore(); }
       else {
         ctx.fillStyle = rgb(p.c); ctx.strokeStyle = 'rgba(60,40,70,.35)'; ctx.lineWidth = 2;
@@ -866,6 +975,7 @@
 
   // ---------- Clawd drawing ----------
   function drawBot() {
+    if (B.inTent) return;
     const sx = B.x - cam, gy = pathY(B.x), sy = gy - B.h;
     const k = 1 / (1 + B.h / 120);
     ctx.fillStyle = `rgba(30,50,20,${.25 * k})`;
@@ -876,6 +986,8 @@
     else { ctx.translate(0, -30); ctx.rotate(B.rot); ctx.translate(0, 30); }
     ctx.scale(1 + B.sq, 1 - B.sq);
     ctx.scale(B.face, 1);
+    const sitOff = B.sit && B.h === 0 ? 9 : 0;
+    ctx.translate(0, sitOff);
 
     const body = rgb(mix([217, 119, 87], [110, 70, 95], N * .45));
     const dark = rgb(mix([178, 88, 60], [80, 50, 70], N * .45));
@@ -885,7 +997,7 @@
       const lift = B.moving ? Math.max(0, Math.sin(ph)) * 5 : (B.h > 0 ? 3 : 0);
       const swing = B.moving ? Math.cos(ph) * 2.5 : 0;
       ctx.fillStyle = i === 0 || i === 3 ? dark : body;
-      ctx.fillRect(lx - 3 + swing, -16, 6, 16 - lift);
+      ctx.fillRect(lx - 3 + swing, -16, 6, 16 - lift - sitOff);
     });
 
     ctx.fillStyle = body;
@@ -993,8 +1105,88 @@
     ctx.restore();
   }
 
+  // ---------- campfire drawing ----------
+  function drawFlame(x, y, s) {
+    for (const [c, k] of [[[255, 120, 40], 1], [[255, 190, 60], .68], [[255, 245, 190], .38]]) {
+      const h = (34 + Math.sin(T * 9 + k * 5) * 5 + noise(T * 6 + k * 3) * 9) * s * k + 3, w = 15 * s * k + 1.5;
+      const sway = Math.sin(T * 5 + k * 2) * 3 * s;
+      ctx.fillStyle = rgb(c, .95);
+      ctx.beginPath(); ctx.moveTo(x - w, y);
+      ctx.quadraticCurveTo(x - w * 1.1, y - h * .5, x + sway, y - h);
+      ctx.quadraticCurveTo(x + w * 1.1, y - h * .5, x + w, y);
+      ctx.quadraticCurveTo(x, y + w * .4, x - w, y); ctx.fill();
+    }
+  }
+  function drawTent(x, y, s) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+    const cloth = shade([217, 119, 87]), deep = shade([150, 72, 52]);
+    ctx.strokeStyle = rgb(shade([110, 85, 70])); ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-48, 0); ctx.lineTo(-60, 4); ctx.moveTo(48, 0); ctx.lineTo(60, 4); ctx.stroke();
+    ctx.fillStyle = rgb(cloth);
+    ctx.beginPath(); ctx.moveTo(-48, 0); ctx.lineTo(0, -62); ctx.lineTo(48, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = rgb(deep, .45);
+    ctx.beginPath(); ctx.moveTo(0, -62); ctx.lineTo(48, 0); ctx.lineTo(0, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = B.inTent ? rgb(mix(shade([60, 40, 40]), [255, 170, 90], .25)) : rgb(shade([60, 40, 40]));
+    ctx.beginPath(); ctx.moveTo(-13, 0); ctx.lineTo(0, -34); ctx.lineTo(13, 0); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = rgb(mix(cloth, [255, 255, 255], .15));
+    ctx.beginPath(); ctx.moveTo(0, -34); ctx.lineTo(13, 0); ctx.lineTo(21, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = rgb(shade([90, 70, 60])); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, -62); ctx.lineTo(0, -76); ctx.stroke();
+    ctx.fillStyle = rgb(shade([120, 235, 200]));
+    ctx.beginPath(); ctx.moveTo(0, -76); ctx.lineTo(14 + Math.sin(T * 4) * 2, -72); ctx.lineTo(0, -68); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+  function drawCampBack() {
+    const K = CAMP; if (!K) return;
+    const fx = K.x - cam, fy = pathY(K.x) + 2;
+    if (K.tentS > .01) drawTent(tentX() - cam, pathY(tentX()) - 4, K.tentS);
+    if (K.logs || K.fire > .05) {
+      ctx.fillStyle = rgb(shade([130, 128, 135]));
+      for (let i = 0; i < 7; i++) { const a = Math.PI + i / 6 * Math.PI; ctx.beginPath(); ctx.ellipse(fx + Math.cos(a) * 22, fy + 3 + Math.abs(Math.sin(a)) * 2, 6, 4, 0, 0, 7); ctx.fill(); }
+      ctx.fillStyle = rgb(mix(shade([110, 72, 45]), [40, 25, 20], K.done ? .6 : 0));
+      for (const r of [-.35, .35]) { ctx.save(); ctx.translate(fx, fy - 3); ctx.rotate(r); ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-18, -3.5, 36, 7, 3) : ctx.rect(-18, -3.5, 36, 7); ctx.fill(); ctx.restore(); }
+    }
+    if (K.fire > .02) drawFlame(fx, fy - 4, Math.min(K.fire, 1.7));
+  }
+  function mallow(x, y, brown, burning, burnt) {
+    ctx.fillStyle = rgb(burnt ? [45, 36, 34] : mix([255, 252, 245], [205, 135, 65], brown));
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x - 5, y - 4, 10, 8, 3) : ctx.rect(x - 5, y - 4, 10, 8); ctx.fill();
+    if (burning) drawFlame(x, y - 3, .32);
+  }
+  function drawCampFront() {
+    const K = CAMP; if (!K) return;
+    const fx = K.x - cam, fy = pathY(K.x);
+    if (K.sticks) {
+      ctx.strokeStyle = rgb(shade([120, 85, 55])); ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+      const b0x = B.x - cam + 32, b0y = pathY(B.x) - B.h - 24, b1x = fx - 10, b1y = fy - 42;
+      const c0x = C.x - cam - 26, c0y = codexY() + 4, c1x = fx + 10, c1y = fy - 46;
+      ctx.beginPath(); ctx.moveTo(b0x, b0y); ctx.lineTo(b1x, b1y); ctx.moveTo(c0x, c0y); ctx.lineTo(c1x, c1y); ctx.stroke();
+      if (!K.bEaten) mallow(b1x, b1y, K.bMallow, false, false);
+      mallow(c1x, c1y, Math.min(1, K.bMallow * 1.3), K.cFire, K.cBurnt);
+    }
+    if (K.fire > .02) {
+      // warm firelight that also tints the two campers
+      const r = (150 + Math.sin(T * 13) * 6 + noise(T * 4) * 12) * Math.min(1.3, .6 + K.fire * .5);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(fx, fy - 20, 0, fx, fy - 20, r);
+      g.addColorStop(0, `rgba(255,150,60,${Math.min(.5, .3 * K.fire * (.35 + N * .65))})`); g.addColorStop(1, 'rgba(255,150,60,0)');
+      ctx.fillStyle = g; ctx.fillRect(fx - r, fy - 20 - r, r * 2, r * 2);
+      ctx.restore();
+    }
+  }
+  function drawShootingStar() {
+    if (!shootStar) return;
+    const k = shootStar.t / 1.1; if (k > 1) return;
+    const x = lerp(W * .78, W * .3, k), y = lerp(H * .06, H * .28, k), a = Math.sin(k * Math.PI);
+    const g = ctx.createLinearGradient(x, y, x + 90, y - 42);
+    g.addColorStop(0, `rgba(255,255,235,${a})`); g.addColorStop(1, 'rgba(255,255,235,0)');
+    ctx.strokeStyle = g; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 90, y - 42); ctx.stroke();
+    ctx.fillStyle = `rgba(255,255,240,${a})`; ctx.beginPath(); ctx.arc(x, y, 2.5, 0, 7); ctx.fill();
+  }
+
   // ---------- frame ----------
-  const DAY = 120;
+  const DAY = 150;
   function frame(dt) {
     T += dt;
     const phase = (.1 + T / DAY) % 1;
@@ -1007,6 +1199,7 @@
     if (dt > 0) {
       updateBot(dt);
       updateCodex(dt);
+      updateCamp(dt);
       updateCritters(dt);
       updateParticles(dt);
     }
@@ -1014,6 +1207,7 @@
 
     drawSky();
     drawSunMoon(phase);
+    drawShootingStar();
     drawClouds();
     const farBase = H * .66, midBase = H * .72;
     drawRidge(.07, farH, farBase, [150, 158, 210], .35, .26);
@@ -1022,10 +1216,12 @@
     drawRidge(.17, midH, midBase, [96, 135, 172], .2, .21);
     drawHills();
     drawMeadow();
+    drawCampBack();
     drawFireflies();
     for (const b of butterflies) if (!b.chased) drawButterfly(b);
     drawCodex();
     drawBot();
+    drawCampFront();
     for (const b of butterflies) if (b.chased) drawButterfly(b);
     drawParticles();
     drawForeground();
@@ -1059,6 +1255,7 @@
       return;
     }
     if (Math.abs(cx - bx) < 70 && Math.abs(cy - by) < 72) {
+      if (B.state === 'camp') { say(B.inTent ? 'Zzz ... noch fünf Minuten ...' : pick(['Hihi!', 'Psst, Lagerfeuer-Zeit!', 'Willst du auch ein Marshmallow?']), 1.6); return; }
       if (B.h > 1) { say(pick(['Wiiiii!', 'Huiii!']), 1); return; }
       const wasNap = B.state === 'nap';
       setState(pick(['spin', 'hop', 'dance'].filter(s => s !== B.state)));
